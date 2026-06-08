@@ -18,6 +18,7 @@ from hivevision.geometry import (
     fit_homography,
     neighbor_distance,
     project,
+    recover_lattice,
 )
 
 # A small connected hive (axial coords) used across the homography tests.
@@ -71,3 +72,48 @@ def test_homography_robust_to_anchor_noise():
 def test_fit_rejects_too_few_points():
     with pytest.raises(ValueError):
         fit_homography([(0, 0), (1, 0), (0, 1)], [(0, 0), (1, 0), (0, 1)])
+
+
+def _check_recovery_consistent(true_coords, fit):
+    """The recovered frame is only defined up to a hex symmetry, so we don't
+    compare coords directly — we check the assignment is a *consistent* lattice:
+    distinct coords, all tiles assigned, and adjacency preserved (true neighbours
+    stay axial-distance 1 apart in the recovered frame)."""
+    def hex_dist(d):  # axial (dq, dr) -> hex distance
+        dq, dr = int(d[0]), int(d[1])
+        return max(abs(dq), abs(dr), abs(dq + dr))
+
+    assert fit.n_assigned == fit.n
+    rec = {tuple(c) for c in fit.axial}
+    assert len(rec) == fit.n  # no two tiles collapsed onto one coord
+    true_arr = np.array(true_coords)
+    for a in range(fit.n):
+        for b in range(a + 1, fit.n):
+            if hex_dist(true_arr[a] - true_arr[b]) == 1:  # true neighbours...
+                assert hex_dist(fit.axial[a] - fit.axial[b]) == 1  # ...stay neighbours
+
+
+def test_recover_lattice_clean_perspective():
+    plane = axial_centers(LAYOUT, 1.0)
+    image = project(_true_homography(), plane)
+    fit = recover_lattice(image)
+    assert fit.residual_frac < 0.01
+    _check_recovery_consistent(LAYOUT, fit)
+
+
+def test_recover_lattice_with_center_noise():
+    rng = np.random.default_rng(1)
+    plane = axial_centers(LAYOUT, 1.0)
+    image = project(_true_homography(), plane)
+    # ~3% of tile spacing of click noise on every centre.
+    noisy = image + rng.normal(scale=0.03 * fit_spacing(image), size=image.shape)
+    fit = recover_lattice(noisy)
+    assert fit.residual_frac < 0.1
+    _check_recovery_consistent(LAYOUT, fit)
+
+
+def fit_spacing(image_pts):
+    """Median nearest-neighbour distance of a point cloud (test helper)."""
+    d = np.hypot(*(image_pts[:, None, :] - image_pts[None, :, :]).transpose(2, 0, 1))
+    np.fill_diagonal(d, np.inf)
+    return np.median(d.min(axis=1))
