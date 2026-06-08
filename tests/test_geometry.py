@@ -101,6 +101,20 @@ def test_recover_lattice_clean_perspective():
     _check_recovery_consistent(LAYOUT, fit)
 
 
+def test_recover_lattice_steep_perspective():
+    # A ~3x trapezoid (far edge compressed) mimics a ~30° grazing shot, where
+    # image-space neighbour graphs break — the perspective search must still
+    # recover a consistent lattice.
+    plane = axial_centers(LAYOUT, 1.0)
+    quad_plane = np.array([[-2, -2], [2, -2], [2, 2], [-2, 2]], dtype=np.float32)
+    quad_image = np.array([[250, 300], [710, 300], [950, 980], [50, 980]], dtype=np.float32)
+    H = cv2.getPerspectiveTransform(quad_plane, quad_image)
+    image = project(H, plane)
+    fit = recover_lattice(image)
+    assert fit.residual_frac < 0.05
+    _check_recovery_consistent(LAYOUT, fit)
+
+
 def test_recover_lattice_with_center_noise():
     rng = np.random.default_rng(1)
     plane = axial_centers(LAYOUT, 1.0)

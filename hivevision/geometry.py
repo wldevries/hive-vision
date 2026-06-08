@@ -162,29 +162,6 @@ def _global_adjacency(dist: np.ndarray, thresh: float) -> list[set[int]]:
     return adj
 
 
-def _local_adjacency(pts: np.ndarray, dist: np.ndarray) -> list[set[int]]:
-    """Per-tile nearest-neighbour graph (scale-adaptive), forced connected.
-
-    The threshold is relative to each tile's *own* nearest-neighbour distance, so
-    foreshortened far tiles in a steeply oblique photo stay connected where a
-    single global threshold would cut them off. Components are then bridged with
-    the shortest edges (a Hive is always edge-connected).
-    """
-    n = len(pts)
-    nn = dist.min(axis=1)
-    adj: list[set[int]] = [set() for _ in range(n)]
-    for i in range(n):
-        for j in np.argsort(dist[i]):
-            if dist[i, j] > 1.7 * nn[i]:
-                break
-            adj[i].add(int(j))
-    for i in range(n):
-        for j in list(adj[i]):
-            adj[j].add(i)
-    _bridge_components(adj, dist)
-    return adj
-
-
 def _plane_to_axial(xy: np.ndarray, size: float = 1.0) -> np.ndarray:
     """Invert ``axial_to_plane`` then cube-round to nearest integer hex -> (N,2) int."""
     qf = xy[:, 0] / (1.5 * size)
@@ -235,36 +212,48 @@ def _global_init(pts, adj):
     return _bfs_assign(pts, adj, seed, lambda i, p, k, c: phase)
 
 
-def _propagate_init(pts, adj, seed):
-    """Flood-fill carrying a per-tile local orientation, pinned by the shared edge."""
-    def theta_of(i, parent, k, coord):
-        if parent is None:
-            return _circular_mean_mod(np.array([_edge_angle(pts, i, j) for j in adj[i]]), 60.0)
-        kb = (k + 3) % 6  # reverse edge i->parent is direction kb in i's frame
-        return _circular_mean_mod(np.array([_edge_angle(pts, i, parent) - 60.0 * kb]), 60.0)
+def _perspective_candidates(pts, d_nn, steps: int = 13, extent: float = 0.3, keep: int = 6):
+    """Search the 2 perspective parameters; return the best candidate assignments.
 
-    return _bfs_assign(pts, adj, seed, theta_of)
-
-
-def _bootstrap_init(pts, adj, dist, s):
-    """Local patch (seed + neighbours) -> homography -> rectify+snap all tiles."""
-    nbrs = list(adj[s])
-    if len(nbrs) < 3:
-        return None
-    nearest = nbrs[int(np.argmin([dist[s, j] for j in nbrs]))]
-    a0 = _edge_angle(pts, s, nearest)
-    coord = {s: (0, 0)}
-    for j in nbrs:
-        coord[j] = _NEIGHBOR_DELTAS_CCW[int(round((_edge_angle(pts, s, j) - a0) / 60.0)) % 6]
-    idx = list(coord)
-    if len({coord[i] for i in idx}) < len(idx):
-        return None
-    try:
-        H = fit_homography(axial_centers([coord[i] for i in idx]), pts[idx])
-    except ValueError:
-        return None
-    snapped = _plane_to_axial(project(np.linalg.inv(H), pts))
-    return snapped if len({tuple(c) for c in snapped}) == len(snapped) else None
+    A homography's only image-space-graph-corrupting part is its perspective (the
+    bottom row): at low camera angles foreshortening makes a next-ring tile closer
+    in pixels than a true side neighbour, so any neighbour graph built directly on
+    the photo is unreliable. We sweep the two perspective coefficients ``(g, h)``
+    over centred/spacing-normalised points; for each, the points are mapped to an
+    (affine) lattice where a single global orientation is valid, so a plain
+    flood-fill assigns coordinates. Each assignment is scored by the residual of
+    the homography it implies on the *original* points, and the best ``keep`` are
+    returned for refinement. This is "estimate the perspective first, then build
+    the graph".
+    """
+    n = len(pts)
+    norm = (pts - pts.mean(0)) / d_nn
+    out: list[tuple[float, np.ndarray]] = []
+    for g in np.linspace(-extent, extent, steps):
+        for h in np.linspace(-extent, extent, steps):
+            R = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [g, h, 1.0]])
+            flat = project(R, norm)
+            dq = np.hypot(*(flat[:, None] - flat[None]).transpose(2, 0, 1))
+            np.fill_diagonal(dq, np.inf)
+            coords = _global_init(flat, _global_adjacency(dq, 1.4 * float(np.median(dq.min(1)))))
+            if len({tuple(c) for c in coords}) < n:
+                continue
+            try:
+                out.append((_resid(pts, coords), coords))
+            except ValueError:
+                continue
+    out.sort(key=lambda t: t[0])
+    # dedup identical assignments, keep the best few
+    seen: set = set()
+    uniq = []
+    for _, c in out:
+        key = tuple(map(tuple, c))
+        if key not in seen:
+            seen.add(key)
+            uniq.append(c)
+        if len(uniq) >= keep:
+            break
+    return uniq
 
 
 def _resid(pts, coords) -> float:
@@ -327,46 +316,31 @@ def recover_lattice(image_pts) -> LatticeFit:
 
     The inference-time inverse of the labelling homography: given only the
     detected/labelled icon centres (a perspective view of a regular hex grid),
-    recover which ``(q, r)`` each one is. Photos can be steeply oblique (~30°),
-    so a single global lattice orientation in image space is unreliable; instead
-    we generate several candidate assignments and keep the one whose homography
-    fits best:
+    recover which ``(q, r)`` each one is. Photos can be steeply oblique (down to
+    ~30° to the table), where foreshortening makes a single global lattice
+    orientation — indeed any neighbour graph built directly on the photo —
+    unreliable. So we **estimate the perspective first**: search the two
+    perspective coefficients (``_perspective_candidates``), which removes the
+    foreshortening and leaves an affine lattice a plain flood-fill can label; the
+    best candidates are then refined by rectify-snap ICP + a leave-one-out
+    re-snap polish, and the lowest-residual one is returned.
 
-    - a global-orientation flood-fill,
-    - a per-seed *local-frame* flood-fill (orientation estimated locally and
-      propagated, so perspective rotation is tracked rather than assumed away),
-    - a per-seed local-patch homography bootstrap,
-
-    each refined by rectify-snap ICP + a leave-one-out re-snap polish, scored by
-    reprojection residual. ``residual_frac`` (mean error / tile spacing) is the
-    confidence signal: clean recoveries sit well under ~0.07, so a high value
-    flags a doubtful board — typically loosely-placed / branchy positions at the
-    click-noise floor, where the input is genuinely ambiguous. A Hive is always
-    edge-connected; ``z`` stacks are out of scope (phase-1 flat board). The
-    recovered frame is only defined up to a hex symmetry, which ``H`` absorbs.
+    ``residual_frac`` (mean error / tile spacing) is the confidence signal: clean
+    recoveries sit well under ~0.07. A Hive is always edge-connected; ``z`` stacks
+    are out of scope (phase-1 flat board). The recovered frame is only defined up
+    to a hex symmetry, which ``H`` absorbs.
     """
     pts = np.asarray(image_pts, dtype=np.float64).reshape(-1, 2)
     n = len(pts)
     if n < 3:
         raise ValueError("need >=3 tile centres to recover a lattice")
 
-    diff = pts[:, None, :] - pts[None, :, :]
-    dist = np.hypot(diff[..., 0], diff[..., 1])
+    dist = np.hypot(*(pts[:, None] - pts[None]).transpose(2, 0, 1))
     np.fill_diagonal(dist, np.inf)
     d_nn = float(np.median(dist.min(axis=1)))
-    adj = _local_adjacency(pts, dist)
-
-    # Global-orientation flood-fill needs a tight (global-threshold) graph; the
-    # local-frame / bootstrap generators need the per-tile graph (perspective).
-    inits = [_global_init(pts, _global_adjacency(dist, 1.4 * d_nn)), _global_init(pts, adj)]
-    for seed in range(n):
-        inits.append(_propagate_init(pts, adj, seed))
-        boot = _bootstrap_init(pts, adj, dist, seed)
-        if boot is not None:
-            inits.append(boot)
 
     best_coords, best_r = None, None
-    for ini in inits:
+    for ini in _perspective_candidates(pts, d_nn):
         refined = _icp(pts, ini)
         if refined is None:
             continue
@@ -374,8 +348,8 @@ def recover_lattice(image_pts) -> LatticeFit:
         r = _resid(pts, coords)
         if best_r is None or r < best_r:
             best_coords, best_r = coords, r
-    if best_coords is None:  # pragma: no cover - every init collided (degenerate input)
-        best_coords = inits[0]
+    if best_coords is None:  # pragma: no cover - degenerate input
+        raise ValueError("lattice recovery failed (degenerate point cloud)")
 
     canonical = axial_centers([tuple(c) for c in best_coords], size=1.0)
     H = fit_homography(canonical, pts)
