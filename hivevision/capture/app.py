@@ -15,12 +15,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from hivevision.data.store import LabelStore
+from hivevision.geometry import recover_lattice
 from hivevision.pieces import CLASSES, class_name, is_valid_class
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -36,6 +38,12 @@ class LabelIn(BaseModel):
     """Save payload: the inbox ``src`` and its marked points (normalized frame)."""
 
     src: str
+    points: list[PointIn]
+
+
+class RecoverIn(BaseModel):
+    """Recover the board from the current points (for the live board preview)."""
+
     points: list[PointIn]
 
 
@@ -86,6 +94,24 @@ def create_app(root: Path) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
         return JSONResponse(row)
+
+    @app.post("/api/recover")
+    def recover(payload: RecoverIn) -> JSONResponse:
+        """Recover the board (q, r) from the marked centers, for the live preview."""
+        if len(payload.points) < 3:
+            return JSONResponse({"ok": False, "reason": "need at least 3 tiles"})
+        pts = np.array([[p.x, p.y] for p in payload.points], dtype=np.float64)
+        try:
+            fit = recover_lattice(pts)
+        except ValueError as e:
+            return JSONResponse({"ok": False, "reason": str(e)})
+        placements = [
+            {"label": payload.points[i].label, "q": int(c[0]), "r": int(c[1])}
+            for i, c in enumerate(fit.axial)
+        ]
+        return JSONResponse(
+            {"ok": True, "placements": placements, "residual_frac": fit.residual_frac, "n": fit.n}
+        )
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app
