@@ -11,6 +11,23 @@ Photo → **position** (a list of placed pieces in hex coordinates). The hard re
 chess-vision, is **generalization across piece sets, surfaces, lighting, and camera angles** — not making
 one setup work. Overfitting to a single domain is the explicit failure mode.
 
+## Status (2026-06-08)
+
+Phases 0–2 built (scaffold, geometry, capture/label app, 16-class taxonomy). **Lattice recovery
+prototyped and validated** on a 9-photo set of one fixed position shot from 30–90° (a strong
+regression test — same board ⇒ all should recover to one *rotation* class; reflection is a
+*different* position, so equivalence is rotation-only). `recover_lattice` is now perspective-aware:
+multiple candidate assignments (global-orientation flood-fill, per-seed **local-frame propagation**
+that tracks the lattice angle locally instead of assuming one global angle, and per-seed patch
+homography bootstrap), each refined by rectify-snap ICP + leave-one-out polish, selected by
+reprojection residual. `residual_frac` is a reliable **confidence** signal (clean ≲0.07).
+
+Current result: **6/9 recover correctly**; the other 3 are loosely-placed/branchy boards at the
+**hand-click noise floor** (genuinely ambiguous from noisy points alone) — the fix there is
+*precise* centres (layout-entry labelling or the trained detector), not a cleverer solver.
+`scripts/check_lattice.py --consistency` groups a same-position set by recovered board as a
+standing regression check. Bulletproof auto-recovery is an inference-time concern, deferred.
+
 ## What makes Hive different from chess (and why it changes the architecture)
 
 1. **Tiles are flat and thin → the icon center is on the table plane.** In chess, the point that matters

@@ -42,14 +42,36 @@ def overlay(img: np.ndarray, pts: np.ndarray, labels: list[str], fit) -> np.ndar
     return out
 
 
+def _canon_rotation(coords) -> tuple:
+    """Canonical form of a board shape under the 6 hex rotations (no reflection).
+
+    Lets us check whether several photos of the *same* physical position recover
+    to the same board — a far stronger correctness test than residual alone.
+    """
+    cur = [(int(q), -int(q) - int(r), int(r)) for q, r in coords]  # axial -> cube
+    best = None
+    for _ in range(6):
+        cur = [(-z, -x, -y) for x, y, z in cur]  # rotate 60°
+        ax = [(c[0], c[2]) for c in cur]
+        mq = min(q for q, _ in ax)
+        mr = min(r for _, r in ax)
+        key = tuple(sorted((q - mq, r - mr) for q, r in ax))
+        if best is None or key < best:
+            best = key
+    return best
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", type=Path, default=Path("data"))
     ap.add_argument("--src", default=None, help="only this photo (else all labelled)")
+    ap.add_argument(
+        "--consistency",
+        action="store_true",
+        help="group all labelled photos by recovered board (rotation-only); use when a set is "
+        "known to be the same physical position to spot recovery errors",
+    )
     args = ap.parse_args(argv)
-
-    out_dir = Path("runs") / "lattice_check"
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     rows = load_rows(args.root)
     if args.src:
@@ -57,6 +79,24 @@ def main(argv: list[str] | None = None) -> int:
     if not rows:
         print("no matching labelled photos")
         return 1
+
+    if args.consistency:
+        groups: dict[tuple, list] = {}
+        for row in rows:
+            pts = np.array([[p["x"], p["y"]] for p in row["points"]], dtype=np.float64)
+            if len(pts) < 3:
+                continue
+            fit = recover_lattice(pts)
+            groups.setdefault(_canon_rotation(fit.axial), []).append(
+                (row["src"], round(fit.residual_frac * 100, 1))
+            )
+        print(f"{len(rows)} photos -> {len(groups)} distinct boards (rotation-only):")
+        for i, members in enumerate(sorted(groups.values(), key=len, reverse=True), 1):
+            print(f"  board #{i} ({len(members)}): {members}")
+        return 0
+
+    out_dir = Path("runs") / "lattice_check"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     for row in rows:
         pts = np.array([[p["x"], p["y"]] for p in row["points"]], dtype=np.float64)
