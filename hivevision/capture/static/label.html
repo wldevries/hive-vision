@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HiveVision · label</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <a href="/">&larr; inbox</a>
+    <h1 id="filename" class="muted"></h1>
+    <span class="muted" id="count"></span>
+    <div class="spacer"></div>
+    <span class="muted" id="status"></span>
+    <button onclick="zoomBy(0.8)" title="Zoom out">&minus;</button>
+    <button onclick="zoomBy(1.25)" title="Zoom in">&plus;</button>
+    <button onclick="resetView()">Fit</button>
+    <button onclick="removeSelected()" title="Remove selected piece">Remove</button>
+    <button class="primary" id="save" onclick="save()">Save</button>
+  </header>
+  <div class="label-layout">
+    <div class="palette" id="palette"></div>
+    <div class="canvas-wrap">
+      <canvas id="cv"></canvas>
+      <div class="hint">tap: add &middot; drag a dot: move &middot; tap a dot then Remove: delete &middot; pinch / ctrl+scroll: zoom &middot; one-finger or two-finger drag / scroll: pan</div>
+    </div>
+  </div>
+  <script src="/static/label.js"></script>
+</body>
+</html>

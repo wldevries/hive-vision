@@ -1,0 +1,24 @@
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# uv / virtualenv
+.venv/
+
+# Trained model weights (Phase 3+) and experiment outputs
+models/*.pt
+models/*.pth
+models/*.onnx
+runs/
+
+# Local environment config
+.env
+
+# OS / editor
+.DS_Store
+*.swp
