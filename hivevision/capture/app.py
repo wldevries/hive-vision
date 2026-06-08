@@ -22,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from hivevision.data.store import LabelStore
-from hivevision.geometry import recover_lattice
+from hivevision.geometry import axial_centers, project, recover_lattice
 from hivevision.pieces import CLASSES, class_name, is_valid_class
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -105,12 +105,43 @@ def create_app(root: Path) -> FastAPI:
             fit = recover_lattice(pts)
         except ValueError as e:
             return JSONResponse({"ok": False, "reason": str(e)})
+
+        # Orient the preview like the photo: take the homography's local rotation
+        # at the board centre (its Jacobian, nearest-orthogonal part) and lay the
+        # regular board out with that rotation — same orientation as the photo,
+        # minus the perspective/shear.
+        canon = axial_centers([(int(c[0]), int(c[1])) for c in fit.axial], size=1.0)
+        c0 = canon.mean(axis=0)
+        o = project(fit.homography, c0[None])[0]
+        jac = np.array(
+            [
+                project(fit.homography, (c0 + [1, 0])[None])[0] - o,
+                project(fit.homography, (c0 + [0, 1])[None])[0] - o,
+            ]
+        ).T  # columns = image displacement per unit plane x / y
+        u, _, vt = np.linalg.svd(jac)
+        rot = u @ vt  # nearest orthogonal (orientation incl. any flip)
+        disp = (canon - c0) @ rot.T
+        orient_deg = float(np.degrees(np.arctan2(rot[1, 0], rot[0, 0])))
+
         placements = [
-            {"label": payload.points[i].label, "q": int(c[0]), "r": int(c[1])}
+            {
+                "label": payload.points[i].label,
+                "q": int(c[0]),
+                "r": int(c[1]),
+                "dx": float(disp[i, 0]),
+                "dy": float(disp[i, 1]),
+            }
             for i, c in enumerate(fit.axial)
         ]
         return JSONResponse(
-            {"ok": True, "placements": placements, "residual_frac": fit.residual_frac, "n": fit.n}
+            {
+                "ok": True,
+                "placements": placements,
+                "residual_frac": fit.residual_frac,
+                "n": fit.n,
+                "orient_deg": orient_deg,
+            }
         )
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -326,7 +326,7 @@ async function runRecover() {
     stat.textContent = data.reason || "recovery failed";
     return;
   }
-  drawBoard(data.placements);
+  drawBoard(data.placements, data.orient_deg || 0);
   const pct = data.residual_frac * 100;
   const cls = pct < 7 ? "good" : pct < 12 ? "warn" : "bad";
   stat.innerHTML =
@@ -334,17 +334,25 @@ async function runRecover() {
     (cls === "good" ? "" : " — check the board");
 }
 
-function drawBoard(placements) {
-  const w = board.clientWidth, h = board.clientHeight;
-  board.width = Math.round(w * dpr);
-  board.height = Math.round(h * dpr);
+// Fixed logical size set explicitly in JS so the canvas can't feed back on its own
+// clientHeight (a missing/stale CSS rule would otherwise grow it by dpr each redraw).
+const BOARD_W = 150, BOARD_H = 120;
+
+function drawBoard(placements, orientDeg = 0) {
+  board.style.width = BOARD_W + "px";
+  board.style.height = BOARD_H + "px";
+  board.width = Math.round(BOARD_W * dpr);
+  board.height = Math.round(BOARD_H * dpr);
+  const w = BOARD_W, h = BOARD_H;
   bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   bctx.clearRect(0, 0, w, h);
   if (!placements.length) return;
 
+  // dx,dy are already oriented to match the photo (server applies the homography's
+  // local rotation); fall back to raw axial layout if absent.
   const S3 = Math.sqrt(3);
   const cells = placements.map((p) => ({
-    x: 1.5 * p.q, y: S3 * (p.r + p.q / 2), label: p.label,
+    x: p.dx ?? 1.5 * p.q, y: p.dy ?? S3 * (p.r + p.q / 2), label: p.label,
   }));
   const xs = cells.map((c) => c.x), ys = cells.map((c) => c.y);
   const minx = Math.min(...xs) - 1, maxx = Math.max(...xs) + 1;
@@ -353,21 +361,22 @@ function drawBoard(placements) {
   const ox = (w - (maxx - minx) * scale) / 2 - minx * scale;
   const oy = (h - (maxy - miny) * scale) / 2 - miny * scale;
   const R = scale; // circumradius 1 in plane units -> tiles touch
+  const off = (Math.PI / 180) * orientDeg; // hex orientation matches the lattice
 
   for (const c of cells) {
     const cx = c.x * scale + ox, cy = c.y * scale + oy;
     const isW = c.label[0] === "w";
     bctx.beginPath();
     for (let k = 0; k < 6; k++) {
-      const a = (Math.PI / 180) * (60 * k);
+      const a = off + (Math.PI / 180) * (60 * k);
       const vx = cx + R * Math.cos(a), vy = cy + R * Math.sin(a);
       k ? bctx.lineTo(vx, vy) : bctx.moveTo(vx, vy);
     }
     bctx.closePath();
     bctx.fillStyle = isW ? "#ededed" : "#1c1c1c";
     bctx.fill();
-    bctx.lineWidth = 1.5;
-    bctx.strokeStyle = "#0c0d10";
+    bctx.lineWidth = 1;
+    bctx.strokeStyle = "rgba(90,150,230,0.55)"; // soft blue so dark tiles read on the dark panel
     bctx.stroke();
     bctx.fillStyle = isW ? "#111" : "#ededed";
     bctx.font = `bold ${Math.max(8, R * 0.7)}px system-ui, sans-serif`;
