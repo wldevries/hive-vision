@@ -1,4 +1,6 @@
-data/
+# The capture/label store (photos, labels.jsonl). Anchored to the repo root so it
+# does NOT also match the hivevision/data/ source package.
+/data/
 
 # Python
 __pycache__/
@@ -10,10 +12,11 @@ __pycache__/
 # uv / virtualenv
 .venv/
 
-# Trained model weights (Phase 3+) and experiment outputs
-models/*.pt
-models/*.pth
-models/*.onnx
+# Model weights — trained and downloaded pretrained (e.g. yolo11n-pose.pt lands in the
+# CWD) — plus experiment outputs. No checkpoint belongs in the repo.
+*.pt
+*.pth
+*.onnx
 runs/
 
 # Local environment config
