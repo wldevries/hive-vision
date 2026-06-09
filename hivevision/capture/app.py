@@ -76,6 +76,17 @@ def create_app(root: Path) -> FastAPI:
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
 
+    @app.get("/api/thumb")
+    def thumb(src: str, w: int = 320) -> Response:
+        """Cached downscaled JPEG for the inbox grid (the full photo is megabytes)."""
+        w = max(64, min(w, 1024))
+        try:
+            return Response(store.thumb_bytes(src, max_w=w), media_type="image/jpeg")
+        except FileNotFoundError as e:
+            raise HTTPException(404, f"no such inbox photo: {src}") from e
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
     @app.get("/api/label")
     def get_label(src: str) -> JSONResponse:
         return JSONResponse(store.get_label(src))

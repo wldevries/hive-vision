@@ -25,8 +25,8 @@ async function load() {
       ? `<span class="badge done">labeled · ${r.n_points}</span>`
       : '<span class="badge todo">to do</span>';
     card.innerHTML =
-      `<img class="thumb" loading="lazy" src="/api/image?src=${encodeURIComponent(r.src)}" />` +
-      `<div class="meta"><span class="name">${r.src}</span>${badge}</div>`;
+      `<img class="thumb" loading="lazy" src="/api/thumb?src=${encodeURIComponent(r.src)}&w=480" />` +
+      `<div class="meta"><span class="name" title="${r.src}">${r.src}</span>${badge}</div>`;
     grid.appendChild(card);
   }
 }

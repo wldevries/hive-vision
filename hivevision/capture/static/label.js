@@ -272,6 +272,18 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---- save ---------------------------------------------------------------- //
+// The next inbox photo (in listing order, wrapping) that still has no label.
+async function nextUnlabeled() {
+  const rows = await fetch("/api/inbox").then((r) => r.json()).catch(() => []);
+  if (!rows.length) return null;
+  const here = Math.max(0, rows.findIndex((r) => r.src === SRC));
+  for (let k = 1; k <= rows.length; k++) {
+    const cand = rows[(here + k) % rows.length];
+    if (!cand.labeled) return cand.src; // current row now reads as labeled, so it's skipped
+  }
+  return null;
+}
+
 async function save() {
   const status = document.getElementById("status");
   status.textContent = "saving…";
@@ -280,12 +292,18 @@ async function save() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ src: SRC, points }),
   });
-  if (resp.ok) {
-    status.textContent = "saved ✓";
-    setTimeout(() => (status.textContent = ""), 1500);
-  } else {
+  if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
     status.textContent = "error: " + (err.detail || resp.status);
+    return;
+  }
+  status.textContent = "saved ✓";
+  const next = await nextUnlabeled();
+  if (next && next !== SRC) {
+    location.href = "/label?src=" + encodeURIComponent(next);
+  } else {
+    status.textContent = "saved ✓ · all photos labeled";
+    setTimeout(() => (status.textContent = ""), 2000);
   }
 }
 
