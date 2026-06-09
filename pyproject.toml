@@ -7,9 +7,10 @@ requires-python = ">=3.12,<3.13"
 authors = [{ name = "Wouter de Vries" }]
 
 # Pins use upper bounds on volatile deps (see plan.md). numpy<2 is deliberate:
-# NumPy 2.x breaks against the OpenCV builds we use. torch/torchvision are NOT
-# here yet — they arrive in Phase 3 (detector) via a cu128 index, mirroring
-# chess-vision. Phases 0-2 (scaffold, geometry, capture/label app) are CPU-only.
+# NumPy 2.x breaks against the OpenCV builds we use. torch/torchvision arrive in
+# Phase 3 (detector) from the default PyPI index — this is not a CUDA machine, so
+# the plain CPU wheels are what we want (no custom wheel index). Ultralytics/ONNX
+# live in the `yolo` dependency group (only needed to train/export the detector).
 dependencies = [
     "fastapi>=0.110,<1",
     "numpy>=1.26,<2",
@@ -17,6 +18,9 @@ dependencies = [
     "pillow>=10.3,<12",
     "python-dotenv>=1.2.2,<2",
     "python-multipart>=0.0.9,<1",
+    "torch>=2.8,<2.12",
+    "torchmetrics>=1.4,<2",
+    "torchvision>=0.23,<0.27",
     "uvicorn[standard]>=0.27,<1",
 ]
 
@@ -45,4 +49,12 @@ dev = [
     "playwright>=1.60.0",
     "pytest>=8.2,<9",
     "ruff>=0.6,<0.13",
+]
+# Only needed to train / run / export the tile detector (Phase 3+). Kept out of
+# the default install so the geometry + capture app stay lightweight.
+yolo = [
+    "onnx>=1.21.0",
+    "onnxruntime>=1.26.0",
+    "onnxslim>=0.1.94",
+    "ultralytics>=8.3,<9",
 ]

@@ -91,7 +91,7 @@ Same split chess-vision proved out: **learned localization + deterministic geome
 heuristics.
 
 1. **Tile detection + classification + icon-center keypoint**, in the natural un-warped photo (chess
-   "Approach A"). One model predicts, per tile: its **class** (10 classes) and its **icon-center keypoint**.
+   "Approach A"). One model predicts, per tile: its **class** (16 classes) and its **icon-center keypoint**.
    Because the icon center is coplanar, this keypoint is far easier to learn than chess's hidden base point.
 2. **Lattice recovery** (deterministic): given the detected coplanar icon centers, fit the homography +
    hex-lattice that assigns each center an integer axial coordinate, minimizing residual to a regular
@@ -130,7 +130,7 @@ nudges per photo — the review loop is QA, not a per-tile labeling chore.
 - `uv` for env/deps, Python 3.12 pinned via `.python-version`. Package `hivevision/`. Pin upper bounds on
   volatile deps; landmines to pre-empt: **`numpy<2`** (breaks OpenCV) and explicit
   **`torch.load(weights_only=...)`**.
-- Capture/label web app (`hivevision/capture/`, Flask) — phone photos → in-browser position entry → 4-click
+- Capture/label web app (`hivevision/capture/`, FastAPI + uvicorn) — phone photos → in-browser position entry → 4-click
   homography → auto-projected labels → nudge → store. Modeled on chess-vision's capture app.
 - Flat `data/` store with a `labels.jsonl` + images; optional MinIO sync and Label Studio QA later (only if
   needed — defer the heavy infra).
@@ -146,7 +146,12 @@ nudges per photo — the review loop is QA, not a per-tile labeling chore.
 - **Phase 2 — Capture + auto-label app.** The web tool above. Deliverable: a labeled starter set of real
   photos with mostly-geometric truth.
 - **Phase 3 — Tile detector baseline.** Keypoint+class model on the captured set (natural images). Report
-  per-tile localization + class accuracy (mAP / keypoint error).
+  per-tile localization + class accuracy (mAP / keypoint error). *Scaffolded:* **YOLO-pose**
+  (Ultralytics, `yolo` dep group; plain CPU torch — not a CUDA box) — `hivevision/detector.py`
+  (inference), `hivevision/data/yolo_pose_export.py` (labels.jsonl → pose dataset; box synthesized
+  from per-image tile pitch), `scripts/train_detector.py`, `scripts/eval_detector.py`. Export runs
+  on the current labels; **training waits on a diverse multi-position set** (the only data today is
+  the same-position lattice regression set, useless for a detector).
 - **Phase 4 — Glue to position.** Detector → lattice recovery → position JSON. Per-photo whole-position
   accuracy on a held-out set. This is the first end-to-end number.
 - **Phase 5 — Generalize.** Diversify (sets, surfaces, lighting, angles); synthetic/domain randomization if
