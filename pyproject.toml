@@ -7,10 +7,11 @@ requires-python = ">=3.12,<3.13"
 authors = [{ name = "Wouter de Vries" }]
 
 # Pins use upper bounds on volatile deps (see plan.md). numpy<2 is deliberate:
-# NumPy 2.x breaks against the OpenCV builds we use. torch/torchvision arrive in
-# Phase 3 (detector) from the default PyPI index — this is not a CUDA machine, so
-# the plain CPU wheels are what we want (no custom wheel index). Ultralytics/ONNX
-# live in the `yolo` dependency group (only needed to train/export the detector).
+# NumPy 2.x breaks against the OpenCV builds we use. torch/torchvision are pinned to
+# the CUDA 12.8 wheel index (see [tool.uv.sources] below) — training runs on a real
+# NVIDIA GPU, so `uv run`/`uv sync` install the cu128 wheels and use --device 0.
+# Ultralytics/ONNX live in the `yolo` dependency group (only needed to train/export
+# the detector).
 dependencies = [
     "azure-storage-blob>=12.19,<13",
     "fastapi>=0.110,<1",
@@ -59,3 +60,13 @@ yolo = [
     "onnxslim>=0.1.94",
     "ultralytics>=8.3,<9",
 ]
+
+# torch/torchvision come from the CUDA 12.8 wheel index (this is a CUDA machine).
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

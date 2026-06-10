@@ -26,11 +26,12 @@ uv run python -m hivevision.data.sync --migrate   # one-time: also seed labels.j
 uv run python scripts/check_lattice.py    # lattice-recovery regression on labelled photos
 uv run python scripts/check_lattice.py --consistency   # group a same-position set by recovered board
 
-# Tile detector (Phase 3). ultralytics/onnx live in the `yolo` group; torch is the plain
-# CPU PyPI wheel (this is not a CUDA machine — use --device cpu, or '0' on a GPU box).
+# Tile detector (Phase 3). ultralytics/onnx live in the `yolo` group; torch/torchvision are
+# pinned to the CUDA 12.8 wheel index (pyproject [tool.uv.sources]) — this is a CUDA machine,
+# so train with --device 0 (use --device cpu only on a GPU-less box).
 uv sync --group yolo
 uv run python -m hivevision.data.yolo_pose_export   # labels.jsonl -> YOLO-pose dataset
-uv run --group yolo python scripts/train_detector.py --device cpu   # builds dataset + trains
+uv run --group yolo python scripts/train_detector.py --device 0   # builds dataset + trains
 uv run --group yolo python scripts/eval_detector.py --ckpt runs/detector/weights/best.pt
 ```
 
@@ -108,6 +109,8 @@ all remaining centers automatically → nudge the few that are off. Most labels 
 ## Dependency landmines (see `pyproject.toml`)
 
 - **`numpy<2`** is deliberate — NumPy 2.x breaks the OpenCV builds used here.
-- `torch`/`torchvision` are **not** in deps yet — they arrive in Phase 3 via a cu128 index. When
-  added, always pass `torch.load(weights_only=...)` explicitly.
+- `torch`/`torchvision` are pinned to the **cu128** wheel index (`pyproject [tool.uv.sources]`),
+  so `uv sync`/`uv run` install CUDA 12.8 wheels — a real NVIDIA GPU is assumed. Always pass
+  `torch.load(weights_only=...)` explicitly. (A GPU-less checkout would need this source repointed
+  to the cpu index; `numpy<2` must hold either way — torch wheels happily resolve numpy 1.26.)
 - Python 3.12 is pinned (`.python-version`, `requires-python >=3.12,<3.13`).
