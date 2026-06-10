@@ -21,6 +21,8 @@ uv run ruff check .                       # lint
 uv run ruff format .                      # format (line-length 100)
 
 uv run python -m hivevision.capture       # capture/label web app -> http://127.0.0.1:8000
+uv run python -m hivevision.data.sync             # push new local inbox/normalized photos to blob
+uv run python -m hivevision.data.sync --migrate   # one-time: also seed labels.jsonl into blob
 uv run python scripts/check_lattice.py    # lattice-recovery regression on labelled photos
 uv run python scripts/check_lattice.py --consistency   # group a same-position set by recovered board
 
@@ -72,9 +74,17 @@ Why Hive differs from chess and why it shaped this design:
   dataset from `labels.jsonl` — the icon-center points are the keypoints; the **box is synthesized**
   from per-image tile pitch (labels carry no box). `scripts/train_detector.py` + `eval_detector.py`
   train and report per-tile localization + class accuracy.
-- `data/store.py` — `LabelStore`, rooted at `data/`. Photos land in `data/store/inbox/`, are
-  EXIF-normalized into `data/store/normalized/`, labels append to `data/labels.jsonl` (keyed by
-  inbox-relative `src`, last write wins). `data/` is gitignored.
+- `data/store.py` — `LabelStore`. The **canonical store is an Azure blob container** (`hive` in
+  the `gamevision` account) keyed by flat paths `inbox/<src>`, `normalized/<src>.jpg`,
+  `labels.jsonl`; this lets you label from multiple machines. The local `data/` root is a
+  **read-through cache** (images land there on first read and on save), but `labels.jsonl` is
+  re-read from blob before every save so machines don't clobber each other. `open_store(root)`
+  picks the blob backend iff `STORAGE_CONNECTION_STRING` is set (`.env`, loaded by `load_dotenv()`
+  in the entry points) and falls back to a purely-local store otherwise — that local mode is what
+  the tests use, so they never touch the network. `data/blob.py` is the lazy-imported Azure
+  backend; `data/sync.py` pushes local photos up (`--migrate` seeds `labels.jsonl` once). Photos
+  are EXIF-normalized on save; labels keyed by inbox-relative `src`, last write wins. `data/` is
+  gitignored; `.env` (connection string) is gitignored.
 - `capture/` — **FastAPI + uvicorn** web app. `app.py:create_app(root)` serves the label UI and
   `/api/recover` (live lattice preview). Static
   JS/HTML in `capture/static/`.

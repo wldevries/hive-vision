@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from hivevision.data.store import LabelStore
+from hivevision.data.store import open_store
 from hivevision.geometry import axial_centers, project, recover_lattice
 from hivevision.pieces import CLASSES, class_name, is_valid_class
 
@@ -48,7 +48,7 @@ class RecoverIn(BaseModel):
 
 
 def create_app(root: Path) -> FastAPI:
-    store = LabelStore(root=root)
+    store = open_store(root)
     app = FastAPI(title="HiveVision capture")
 
     @app.get("/")

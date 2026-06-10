@@ -12,6 +12,7 @@ authors = [{ name = "Wouter de Vries" }]
 # the plain CPU wheels are what we want (no custom wheel index). Ultralytics/ONNX
 # live in the `yolo` dependency group (only needed to train/export the detector).
 dependencies = [
+    "azure-storage-blob>=12.19,<13",
     "fastapi>=0.110,<1",
     "numpy>=1.26,<2",
     "opencv-python>=4.9,<4.12",

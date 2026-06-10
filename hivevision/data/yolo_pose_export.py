@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-from hivevision.data.store import LabelStore
+from hivevision.data.store import normalized_key, open_store
 from hivevision.pieces import CLASS_INDEX, CLASSES, is_valid_class
 
 # Synthetic box side as a fraction of the per-image tile pitch (centre-to-centre of
@@ -114,7 +114,7 @@ def build_yolo_pose_dataset(
 
     Returns ``(data_yaml_path, counts)``. ``counts`` reports images/instances per split.
     """
-    store = LabelStore(Path(store_root))
+    store = open_store(store_root)
     out_dir = Path(out_dir)
     for sub in ("images/train", "images/val", "images/test", "labels/train", "labels/val",
                 "labels/test"):
@@ -130,8 +130,9 @@ def build_yolo_pose_dataset(
         else:
             split = "val" if _is_val(src, val_frac, seed) else "train"
         stem = src.replace("/", "_").rsplit(".", 1)[0]
-        img_path = store.root / row["image"]
-        if not img_path.exists():  # normalized JPEG missing (re-save the label to regenerate)
+        # Materialize the normalized JPEG locally (downloads from blob on a cache miss).
+        img_path = store.ensure_local(normalized_key(src))
+        if img_path is None:  # normalized JPEG missing (re-save the label to regenerate)
             continue
         _link_or_copy(img_path, out_dir / "images" / split / f"{stem}.jpg")
         (out_dir / "labels" / split / f"{stem}.txt").write_text(
@@ -175,6 +176,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # picks up STORAGE_CONNECTION_STRING so open_store() reads from blob
     args = parse_args(argv)
     test_prefixes = tuple(p for p in args.test_prefixes.split(",") if p)
     yaml_path, counts = build_yolo_pose_dataset(

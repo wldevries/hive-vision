@@ -11,19 +11,19 @@ homography-reprojected grid) under data/_lattice_check/ for eyeballing.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import cv2
 import numpy as np
+from dotenv import load_dotenv
 
+from hivevision.data.store import LabelStore, open_store
 from hivevision.geometry import axial_centers, project, recover_lattice
 from hivevision.render import render_ascii
 
 
-def load_rows(root: Path) -> list[dict]:
-    path = root / "labels.jsonl"
-    return [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+def load_rows(store: LabelStore) -> list[dict]:
+    return list(store.load_labels().values())
 
 
 def overlay(img: np.ndarray, pts: np.ndarray, labels: list[str], fit) -> np.ndarray:
@@ -73,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
-    rows = load_rows(args.root)
+    load_dotenv()  # picks up STORAGE_CONNECTION_STRING so open_store() reads from blob
+    store = open_store(args.root)
+    rows = load_rows(store)
     if args.src:
         rows = [r for r in rows if r["src"] == args.src]
     if not rows:
@@ -113,10 +115,10 @@ def main(argv: list[str] | None = None) -> int:
         placements = [(int(c[0]), int(c[1]), labels[i]) for i, c in enumerate(fit.axial)]
         print(render_ascii(placements))
 
-        img_path = args.root / row["image"]
-        img = cv2.imread(str(img_path))
+        img_path = store.normalized_path(row["src"])
+        img = cv2.imread(str(img_path)) if img_path else None
         if img is None:
-            print(f"  (could not read {img_path}, skipping overlay)")
+            print(f"  (no normalized image for {row['src']}, skipping overlay)")
             continue
         out = overlay(img, pts, labels, fit)
         scale = 1600 / out.shape[1]
